@@ -24,52 +24,73 @@ def urlparse(uri):
         return URI(match.group(1), int(match.group(2) or 80), match.group(3))
 
 
-def _connect_http(hostname, port, path):
-    """Stage 1 do the HTTP connection to get our SID"""
+def _http_get(hostname, port, path):
+    sock = socket.socket()
+
+    res = {
+        "headers": {}
+    }
+
     try:
-        sock = socket.socket()
         addr = socket.getaddrinfo(hostname, port)
         sock.connect(addr[0][4])
-
-        def send_header(header, *args):
+        
+        if port == 443:
+            import ussl
+            sock = ussl.wrap_socket(sock, server_hostname=host)
+            
+        def send_header(header):
             if __debug__:
-                LOGGER.debug(str(header), *args)
-
-            sock.write(header % args + '\r\n')
-
-        send_header(b'GET %s HTTP/1.1', path)
-        send_header(b'Host: %s:%s', hostname, port)
+                LOGGER.debug("SEND HEADER {}"
+                    .format(header, header.decode("utf-8")))
+                    
+            sock.write(header + '\r\n')
+        
+        send_header(b'GET %s HTTP/1.1' % path)
+        send_header(b'Host: %s:%s' % (hostname, port))
         send_header(b'')
-
-        header = sock.readline()[:-2]
-        assert header == b'HTTP/1.1 200 OK', header
-
-        length = None
-
-        while header:
+        
+        line = sock.readline()[:-2]
+        print(line, line.split(None, 2))
+        res["version"], code, res["status_message"] = line.split(None, 2)
+        res["status_code"] = int(code)
+        
+        while (True):
             header = sock.readline()[:-2]
             
             if not header:
                 break
-
-            header, value = header.split(b': ')
-            header = header.lower()
-            if header == b'content-type':
-                assert value == b'application/octet-stream'
-            elif header == b'content-length':
-                length = int(value)
-
-        for i in range(20):
-          print(sock.read(1).decode("utf-8"), end="")
-
-
-        if length:
-
-          data = sock.read(length)
-          return decode_payload(data)
-
+            
+            k, v = [x.strip() for x in header.split(b":", 1)]
+            res["headers"][k] = v
+            
+        def readall(sock, buffer_size=1024):
+            while True:
+                buf = sock.recv(buffer_size)
+                yield buf
+                if len(buf) < buffer_size:
+                    break
+                
+        res["body"] = b''.join(readall(sock))
+            
     finally:
-        sock.close()
+      sock.close()
+            
+    print(res)
+        
+    return sock, res
+
+
+def _connect_http(hostname, port, path):
+    """Stage 1 do the HTTP connection to get our SID"""
+    
+    sock, res = _http_get(hostname, port, path)
+    
+    if res["status_code"] == 200:
+        return decode_payload(res["body"])
+        
+    else:
+        raise Exception(u"Bad response from server: {}".format(res))
 
 
 def connect(uri):
@@ -82,7 +103,7 @@ def connect(uri):
 
     # Start a HTTP connection, which will give us an SID to use to upgrade
     # the websockets connection
-    packets = _connect_http(uri.hostname, uri.port, path)
+    packets = _connect_http(uri.hostname, uri.port, path + "&transport=polling")
     # The first packet should open the connection,
     # following packets might be initialisation messages for us
     packet_type, params = next(packets)
