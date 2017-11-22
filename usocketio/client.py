@@ -21,7 +21,7 @@ def urlparse(uri):
     """Parse http:// URLs"""
     match = URL_RE.match(uri)
     if match:
-        return URI(match.group(1), int(match.group(2)), match.group(3))
+        return URI(match.group(1), int(match.group(2) or 80), match.group(3))
 
 
 def _connect_http(hostname, port, path):
@@ -48,6 +48,7 @@ def _connect_http(hostname, port, path):
 
         while header:
             header = sock.readline()[:-2]
+            
             if not header:
                 break
 
@@ -58,10 +59,14 @@ def _connect_http(hostname, port, path):
             elif header == b'content-length':
                 length = int(value)
 
-        assert length
+        for i in range(20):
+          print(sock.read(1).decode("utf-8"), end="")
 
-        data = sock.read(length)
-        return decode_payload(data)
+
+        if length:
+
+          data = sock.read(length)
+          return decode_payload(data)
 
     finally:
         sock.close()
