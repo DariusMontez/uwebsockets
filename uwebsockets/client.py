@@ -52,7 +52,8 @@ def connect(uri):
     send_header(b'')
 
     header = sock.readline()[:-2]
-    assert header == b'HTTP/1.1 101 Switching Protocols', header
+    
+    assert b'101' in status_line, status_line
 
     # We don't (currently) need these headers
     # FIXME: should we check the return key?
