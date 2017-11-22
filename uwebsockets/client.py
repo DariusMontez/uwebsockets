@@ -53,7 +53,7 @@ def connect(uri):
 
     header = sock.readline()[:-2]
     
-    assert b'101' in status_line, status_line
+    assert b'101' in header, header
 
     # We don't (currently) need these headers
     # FIXME: should we check the return key?
